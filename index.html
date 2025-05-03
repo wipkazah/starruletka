@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Stars Roulette</title>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e2129 0%, #2a2e38 100%);
+            margin: 0;
+            padding: 0;
+            text-align: center;
+            font-family: 'Montserrat', sans-serif;
+            touch-action: manipulation;
+            position: relative;
+            min-height: 100vh;
+        }
+        
+        #roulette-container {
+            width: 100%;
+            max-width: 600px;
+            height: auto;
+            min-height: 150px;
+            margin: 30px auto 0;
+            padding: 0 10px;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 10;
+        }
+        
+        @media (max-width: 768px) {
+            #roulette-container {
+                max-width: 100%;
+                min-height: 180px;
+                overflow: visible;
+            }
+            
+            #ev-roulette {
+                height: 220px !important;
+            }
+            
+            .ev-weapon {
+                width: 180px !important;
+            }
+            
+            .ev-weapon img {
+                width: 70px !important;
+                height: 70px !important;
+            }
+        }
+        
+        #controls {
+            margin: 20px auto;
+            padding: 0 10px;
+        }
+        
+        #spin-button {
+            padding: 15px 30px;
+            font-size: 18px;
+            background: linear-gradient(45deg, #3390ec, #2a7bc8);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 90%;
+            max-width: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            box-shadow: 0 4px 10px rgba(42, 123, 200, 0.3);
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        
+        #spin-button img {
+            width: 20px;
+            height: 20px;
+            margin-right: 8px;
+        }
+        
+        .inline-star {
+            width: 18px !important;
+            height: 18px !important;
+            margin: 0 0 0 2px !important;
+            vertical-align: middle;
+            position: relative;
+            top: -1px;
+        }
+        
+        #spin-button:hover {
+            background: linear-gradient(45deg, #2a7bc8, #1e6cb9);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(42, 123, 200, 0.4);
+        }
+        
+        #spin-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        h1 {
+            color: #fff;
+            font-size: 28px;
+            padding: 0 10px;
+            margin-top: 80px;
+            text-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+            font-family: 'Touraine', Arial, sans-serif;
+            letter-spacing: 1px;
+            position: relative;
+            display: inline-block;
+        }
+        
+        h1::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80px;
+            height: 3px;
+            background: linear-gradient(90deg, #3390ec, #ffd700);
+            border-radius: 3px;
+        }
+        
+        .star-title {
+            color: #ffd700;
+            font-size: 32px;
+            vertical-align: middle;
+            margin-right: 5px;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 28px;
+                margin-top: 90px;
+            }
+            
+            .star-title {
+                font-size: 30px;
+            }
+        }
+        
+        .stars-badge {
+            background: #ffd700;
+            color: #1e2129;
+            padding: 5px 10px;
+            border-radius: 20px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            margin-left: 5px;
+        }
+        
+        .stars-badge img {
+            width: 16px;
+            height: 16px;
+            margin-right: 5px;
+        }
+        
+        .loading {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 20px;
+        }
+        
+        /* Стили для мини-профиля пользователя */
+        .user-profile {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex !important;
+            align-items: center;
+            background: rgba(30, 33, 41, 0.8);
+            padding: 8px 15px;
+            border-radius: 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+            visibility: visible !important;
+            opacity: 1 !important;
+        }
+        
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-right: 8px;
+            border: 2px solid #3390ec;
+        }
+        
+        .user-name {
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            max-width: 120px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        @media (max-width: 768px) {
+            .user-profile {
+                top: 15px;
+                right: 15px;
+                padding: 6px 12px;
+            }
+            
+            .user-avatar {
+                width: 40px;
+                height: 40px;
+            }
+            
+            .user-name {
+                font-size: 16px;
+                max-width: 150px;
+            }
+        }
+        
+        /* Стили для красивой вкладки со стоимостью подарков */
+        .stars-cost-badge {
+            background: linear-gradient(45deg, #ffd700, #ffaa00);
+            color: #1e2129;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 5px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            font-family: 'Montserrat', Arial, sans-serif;
+            letter-spacing: 0.5px;
+        }
+        
+        .stars-cost-badge .stars-icon {
+            width: 12px !important;
+            height: 12px !important;
+            margin-right: 3px !important;
+            vertical-align: middle !important;
+            max-width: 12px !important;
+            max-height: 12px !important;
+        }
+        
+        .stars-cost-badge span {
+            font-size: 13px;
+            vertical-align: middle;
+            margin-right: 1px;
+            font-weight: 700;
+        }
+        
+        @media (max-width: 768px) {
+            .stars-cost-badge {
+                padding: 4px 8px;
+                transform: scale(0.85);
+            }
+            
+            .stars-cost-badge .stars-icon {
+                width: 14px !important;
+                height: 14px !important;
+                max-width: 14px !important;
+                max-height: 14px !important;
+            }
+            
+            .stars-cost-badge span {
+                font-size: 14px;
+            }
+        }
+    </style>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="loading" id="loading">Обработка платежа...</div>
+    
+    <!-- Мини-профиль пользователя -->
+    <div class="user-profile" id="user-profile">
+        <img src="assets/default-avatar.png" alt="Аватар" class="user-avatar" id="user-avatar">
+        <div class="user-name" id="user-name">Пользователь</div>
+    </div>
+    
+    <h1><span class="star-title">⭐</span> Star Roulette <span class="stars-badge"><img src="assets/star.png">25</span></h1>
+    
+    <div id="controls">
+        <button id="spin-button">
+            <img src="assets/star.png" alt="Star">
+            <span>Крутить за 25 <img src="assets/star.png" alt="Star" class="inline-star"></span>
+        </button>
+    </div>
+    
+    <div id="roulette-container"></div>
+
+    <script src="ev_roulette.js"></script>
+    <script src="effects.js"></script>
+    <script src="index.js"></script>
+    <script>
+        // Запускаем основную функцию при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOMContentLoaded event fired, initializing application...');
+            try {
+                main();
+            } catch (e) {
+                console.error('Error during main initialization:', e);
+            }
+        });
+    </script>
+</body>
+</html>

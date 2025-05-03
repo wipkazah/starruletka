@@ -1,0 +1,287 @@
+// Константы
+const STARS_COST = 25; // Стоимость одной прокрутки в Stars
+const DEBUG = true; // Режим отладки
+
+// Данные для рулетки
+var WEAPON_PRIZE_ATTRS = {
+    weapon_name: 'Хэпи Бездар',
+    skin_name: '350 звезд',
+    rarity: 'covert',
+    steam_image: 'assets/happy-birthday.png'
+};
+
+// Функция для показа конфетти при выигрыше
+function showConfetti() {
+    confetti({
+        particleCount: 100,
+        spread: 70,
+        origin: { y: 0.6 }
+    });
+}
+
+// Функция для отображения попапа с выигрышем
+function showWinnerPopup(winner) {
+    const tg = window.Telegram.WebApp;
+    tg.showPopup({
+        title: 'Поздравляем!',
+        message: `Вы выиграли ${winner.weapon_name} (${winner.skin_name})!`,
+        buttons: [{ type: 'ok' }]
+    });
+}
+
+// Функция для запуска рулетки
+function startRoulette() {
+    const rouletteContainer = document.getElementById('roulette-container');
+    const spinButton = document.getElementById('spin-button');
+    
+    // Очищаем контейнер рулетки
+    rouletteContainer.innerHTML = '';
+    
+    // Создаем элементы рулетки
+    const roulette = document.createElement('div');
+    roulette.className = 'roulette';
+    
+    // Создаем 10 элементов для рулетки
+    for (let i = 0; i < 10; i++) {
+        const item = document.createElement('div');
+        item.className = 'roulette-item';
+        
+        const img = document.createElement('img');
+        img.src = WEAPON_PRIZE_ATTRS.steam_image;
+        img.alt = WEAPON_PRIZE_ATTRS.weapon_name;
+        
+        const name = document.createElement('div');
+        name.className = 'item-name';
+        name.textContent = WEAPON_PRIZE_ATTRS.weapon_name;
+        
+        const price = document.createElement('div');
+        price.className = 'item-price';
+        price.textContent = WEAPON_PRIZE_ATTRS.skin_name;
+        
+        item.appendChild(img);
+        item.appendChild(name);
+        item.appendChild(price);
+        
+        roulette.appendChild(item);
+    }
+    
+    // Добавляем рулетку в контейнер
+    rouletteContainer.appendChild(roulette);
+    
+    // Анимация вращения
+    spinButton.disabled = true;
+    spinButton.textContent = 'Крутится...';
+    
+    // Имитация вращения
+    setTimeout(() => {
+        // Останавливаем вращение
+        spinButton.disabled = false;
+        spinButton.textContent = 'Крутить снова!';
+        
+        // Показываем выигрыш
+        showWinnerPopup(WEAPON_PRIZE_ATTRS);
+        showConfetti();
+    }, 3000);
+}
+
+// Функция обработки платежа
+async function processPayment() {
+    const tg = window.Telegram.WebApp;
+    const loading = document.getElementById('loading');
+    
+    try {
+        if (DEBUG) {
+            console.log('WebApp Data:', {
+                platform: tg.platform,
+                version: tg.version,
+                colorScheme: tg.colorScheme,
+                themeParams: tg.themeParams,
+                initData: tg.initData,
+                initDataUnsafe: tg.initDataUnsafe
+            });
+            
+            // В режиме отладки можно сразу прокрутить рулетку
+            if (DEBUG && confirm('Режим отладки: Прокрутить рулетку без оплаты?')) {
+                startRoulette();
+                return;
+            }
+        }
+        
+        // Получаем ID пользователя
+        const userId = tg.initDataUnsafe?.user?.id || 'unknown';
+        
+        // Создаем запрос на оплату через Telegram Stars
+        tg.showPopup({
+            title: 'Подтверждение',
+            message: `Хотите прокрутить рулетку за ${STARS_COST} Stars?`,
+            buttons: [
+                {type: 'ok', text: 'Подтвердить'},
+                {type: 'cancel', text: 'Отмена'}
+            ]
+        }, (confirmed) => {
+            if (confirmed) {
+                // Создаем полезную нагрузку
+                const payload = JSON.stringify({
+                    user_id: userId,
+                    stars: STARS_COST,
+                    timestamp: Date.now()
+                });
+                
+                if (DEBUG) {
+                    console.log('Payment payload:', payload);
+                }
+
+                // Показываем инвойс для оплаты
+                tg.showInvoice({
+                    title: 'Прокрутка рулетки',
+                    description: `Одна прокрутка рулетки за ${STARS_COST} Stars`,
+                    prices: [{ label: 'XTR', amount: STARS_COST }],
+                    payload: payload,
+                    callback: (success) => {
+                        if (DEBUG) {
+                            console.log('Payment result:', success);
+                        }
+                        
+                        if (success) {
+                            loading.style.display = 'flex';
+                            setTimeout(() => {
+                                loading.style.display = 'none';
+                                startRoulette();
+                            }, 1000);
+                        } else {
+                            tg.showPopup({
+                                title: 'Ошибка',
+                                message: 'Не удалось совершить платеж',
+                                buttons: [{ type: 'ok' }]
+                            });
+                        }
+                    }
+                });
+            }
+        });
+    } catch (error) {
+        console.error('Payment error:', error);
+        loading.style.display = 'none';
+        tg.showPopup({
+            title: 'Ошибка',
+            message: error.message || 'Произошла ошибка при обработке платежа',
+            buttons: [{ type: 'ok' }]
+        });
+    }
+}
+
+// Основная функция инициализации
+function main() {
+    const tg = window.Telegram.WebApp;
+    const spinButton = document.getElementById('spin-button');
+    const rouletteContainer = document.getElementById('roulette-container');
+    
+    // Дебаг информация
+    if (DEBUG) {
+        console.log('Telegram WebApp initialized');
+        console.log('Version:', tg.version);
+        console.log('Platform:', tg.platform);
+        console.log('Theme:', tg.colorScheme);
+    }
+    
+    // Настройка интерфейса
+    tg.expand();
+    tg.MainButton.hide();
+    
+    // Показываем контейнер рулетки
+    if (rouletteContainer) {
+        rouletteContainer.style.display = 'block';
+        
+        // Создаем статичную рулетку
+        const staticRoulette = document.createElement('div');
+        staticRoulette.className = 'static-roulette';
+        
+        const item = document.createElement('div');
+        item.className = 'roulette-item';
+        
+        const img = document.createElement('img');
+        img.src = WEAPON_PRIZE_ATTRS.steam_image;
+        img.alt = WEAPON_PRIZE_ATTRS.weapon_name;
+        img.style.width = '100px';
+        img.style.height = 'auto';
+        
+        const name = document.createElement('div');
+        name.className = 'item-name';
+        name.textContent = WEAPON_PRIZE_ATTRS.weapon_name;
+        name.style.color = '#fff';
+        name.style.marginTop = '10px';
+        
+        const price = document.createElement('div');
+        price.className = 'item-price';
+        price.textContent = WEAPON_PRIZE_ATTRS.skin_name;
+        price.style.color = '#ffd700';
+        
+        item.appendChild(img);
+        item.appendChild(name);
+        item.appendChild(price);
+        
+        staticRoulette.appendChild(item);
+        rouletteContainer.appendChild(staticRoulette);
+    }
+    
+    // Настройка кнопки
+    if (tg.platform === 'unknown') {
+        // Не в Telegram
+        spinButton.disabled = true;
+        spinButton.textContent = 'Откройте в Telegram';
+    } else {
+        // В Telegram
+        spinButton.disabled = false;
+        spinButton.textContent = `Крутить за ${STARS_COST} Stars`;
+        spinButton.addEventListener('click', processPayment);
+        
+        // Проверка доступности звезд
+        if (DEBUG) {
+            console.log('Stars payment available:', tg.isStarsPaymentAvailable);
+            console.log('User data available:', !!tg.initDataUnsafe?.user);
+            if (tg.initDataUnsafe?.user) {
+                console.log('User ID:', tg.initDataUnsafe.user.id);
+                console.log('User name:', tg.initDataUnsafe.user.first_name);
+            }
+        }
+    }
+}
+
+// Инициализация при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    // Запускаем основную функцию
+    main();
+});
+
+// Добавляем стили для рулетки
+const style = document.createElement('style');
+style.textContent = `
+.static-roulette {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    background: #2a2e38;
+    border-radius: 10px;
+    margin: 20px auto;
+    max-width: 400px;
+}
+
+.roulette-item {
+    text-align: center;
+    padding: 10px;
+    border-radius: 5px;
+    background: #343a4a;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+}
+
+.roulette {
+    display: flex;
+    overflow-x: hidden;
+    width: 100%;
+    padding: 20px 0;
+    background: #2a2e38;
+    border-radius: 10px;
+}
+`;
+document.head.appendChild(style);
