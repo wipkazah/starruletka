@@ -2,11 +2,14 @@
 const DEBUG = false; // Режим отладки
 const STARS_COST = 25; // Стоимость прокрутки рулетки в звездах
 const PAYMENT_TIMEOUT = 30000; // Таймаут ожидания ответа от бота (30 секунд)
+const API_URL = 'https://starroulette.pro'; // URL бота для API-запросов
 
 // Глобальные переменные для отслеживания состояния платежа
 let pendingPaymentId = null;
 let paymentTimeoutId = null;
 let isRouletteSpinning = false; // Флаг для отслеживания состояния рулетки
+let rouletteInstance = null; // Глобальная переменная для экземпляра рулетки
+let isPaymentProcessing = false; // Флаг для предотвращения двойной оплаты
 
 // Константы для адаптивности
 const MOBILE_BREAKPOINT = 768; // Точка перехода на мобильную версию
@@ -211,12 +214,11 @@ function startRoulette() {
     // Проверяем наличие необходимых компонентов
     if (typeof EvRoulette !== 'function') {
         console.error("EvRoulette function is not defined!");
+        alert("Ошибка: функция EvRoulette не найдена. Попробуйте перезагрузить страницу.");
         return false;
     }
     
     try {
-        console.log("Starting roulette...");
-        
         // Проверяем, не крутится ли уже рулетка
         if (isRouletteSpinning) {
             console.log("Roulette is already spinning, ignoring request");
@@ -230,7 +232,7 @@ function startRoulette() {
         const spinButton = document.getElementById('spin-button');
         if (spinButton) {
             spinButton.disabled = true;
-            spinButton.textContent = 'Крутится...';
+            spinButton.innerHTML = '<img src="assets/star.png" alt="Star"><span>Крутится...</span>';
         }
         
         // Получаем контейнер для рулетки
@@ -238,6 +240,10 @@ function startRoulette() {
         if (!rouletteContainer) {
             console.error("Roulette container not found");
             isRouletteSpinning = false;
+            if (spinButton) {
+                spinButton.disabled = false;
+                spinButton.innerHTML = '<img src="assets/star.png" alt="Star"><span>Крутить за 25 <img src="assets/star.png" alt="Star" class="inline-star"></span>';
+            }
             return false;
         }
         
@@ -264,7 +270,7 @@ function startRoulette() {
         }
         
         // Создаем рулетку
-        const roulette = new EvRoulette({
+        rouletteInstance = new EvRoulette({
             weapons_array: weaponsArray,
             el_parent: rouletteContainer,
             beforeparty: function() {
@@ -279,20 +285,42 @@ function startRoulette() {
                 // Показываем конфетти
                 showConfetti();
                 
+                // Получаем выигранный приз
+                const prizeName = prize.weapon_name;
+                console.log("Prize won:", prize);
+                console.log("Prize name:", prizeName);
+                
+                // Преобразуем название приза в название подарка
+                const giftName = convertPrizeNameToGiftName(prizeName);
+                
                 // Отправляем информацию о выигрыше на сервер
-                sendPrizeToServer(prize);
+                sendPrizeToServer(giftName);
+                
+                // Отображаем попап с выигрышем
+                showWinnerPopup(giftName);
                 
                 // Восстанавливаем кнопку
                 const spinButton = document.getElementById('spin-button');
                 if (spinButton) {
                     spinButton.disabled = false;
-                    spinButton.textContent = 'Крутить';
+                    spinButton.innerHTML = '<img src="assets/star.png" alt="Star"><span>Крутить за 25 <img src="assets/star.png" alt="Star" class="inline-star"></span>';
                 }
             }
         });
         
         // Запускаем рендер рулетки
-        roulette.render_immediately();
+        if (typeof rouletteInstance.render_immediately === 'function') {
+            rouletteInstance.render_immediately();
+        } else {
+            console.error("render_immediately method is not defined on roulette instance");
+            isRouletteSpinning = false;
+            
+            if (spinButton) {
+                spinButton.disabled = false;
+                spinButton.innerHTML = '<img src="assets/star.png" alt="Star"><span>Крутить за 25 <img src="assets/star.png" alt="Star" class="inline-star"></span>';
+            }
+            return false;
+        }
         
         return true;
     } catch (error) {
@@ -305,85 +333,119 @@ function startRoulette() {
         const spinButton = document.getElementById('spin-button');
         if (spinButton) {
             spinButton.disabled = false;
-            spinButton.textContent = 'Крутить';
-            return false;
+            spinButton.innerHTML = '<img src="assets/star.png" alt="Star"><span>Крутить за 25 <img src="assets/star.png" alt="Star" class="inline-star"></span>';
         }
-        
-        // Показываем индикатор загрузки
-        const loading = document.getElementById('loading');
-        if (loading) {
-            loading.style.display = 'block';
-        }
-        
-        // Для тестирования в режиме отладки
-        if (DEBUG) {
-            console.log("DEBUG mode: Starting roulette without payment");
+        return false;
+    }
+}
+
+// Функция для преобразования названия приза в название подарка для Telegram
+function convertPrizeNameToGiftName(prizeName) {
+    console.log("Converting prize name to gift name:", prizeName);
+    
+    // Обработка в случае, если приз передается как объект
+    if (typeof prizeName === 'object' && prizeName.weapon_name) {
+        prizeName = prizeName.weapon_name;
+    }
+    
+    const prizeToGift = {
+        'Сердце': 'heart',
+        'Медведь': 'bear',
+        'Коробка': 'gift',
+        'Роза': 'rose',
+        'Торт': 'cake',
+        'Букет': 'bouquet',
+        'Ракета': 'rocket',
+        'Кольцо': 'ring',
+        'Кубок': 'cup',
+        'Алмаз': 'diamond',
+        'Бутылка': 'bottle',
+        'Happy Birthday': 'birthday',
+        'Хэпи Бездар': 'birthday'
+    };
+    
+    const giftName = prizeToGift[prizeName] || 'heart';
+    console.log("Converted to gift name:", giftName);
+    return giftName;
+}
+
+// Функция для обработки платежа с использованием sendData
+function processPayment() {
+    console.log("Processing payment...");
+    
+    // Предотвращаем двойную оплату
+    if (isPaymentProcessing) {
+        console.log("Payment is already in progress");
+        return;
+    }
+    
+    isPaymentProcessing = true;
+    
+    // Получаем Telegram WebApp
+    const tg = window.Telegram.WebApp;
+    
+    if (!tg) {
+        console.error("Telegram WebApp is not available");
+        alert("Ошибка: Telegram WebApp недоступен");
+        isPaymentProcessing = false;
+        return;
+    }
+    
+    // Показываем индикатор загрузки
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.style.display = 'flex';
+    }
+    
+    // Для тестирования в режиме отладки
+    if (DEBUG) {
+        console.log("DEBUG mode: Starting roulette without payment");
+        setTimeout(() => {
+            if (loading) {
+                loading.style.display = 'none';
+            }
+            isPaymentProcessing = false;
             startRoulette();
-            return;
-        }
+        }, 500);
+        return;
+    }
+    
+    // Самый простой и надежный способ - отправляем данные в бот через sendData
+    // Бот создаст инвойс и обработает платеж
+    try {
+        console.log("Sending request to spin roulette...");
         
-        // Проверяем, доступны ли платежи звездами
-        if (tg.isStarsPaymentAvailable) {
-            console.log("Stars payment available, showing payment dialog...");
+        // Отправляем команду боту на запуск рулетки
+        tg.sendData(JSON.stringify({
+            action: 'spin_roulette',
+            cost: STARS_COST
+        }));
+        
+        // Показываем загрузку и запускаем рулетку
+        setTimeout(() => {
+            // Скрываем индикатор загрузки
+            if (loading) {
+                loading.style.display = 'none';
+            }
             
-            // Показываем диалог оплаты звездами
-            tg.showStarsPayment({
-                amount: STARS_COST,
-                title: "Прокрутка рулетки",
-                description: "Прокрутите рулетку и выиграйте подарок!"
-            }, function(success) {
-                // Скрываем индикатор загрузки
-                if (loading) {
-                    loading.style.display = 'none';
-                }
-                
-                if (success) {
-                    console.log("Payment successful, starting roulette...");
-                    startRoulette();
-                } else {
-                    console.log("Payment failed or cancelled");
-                    tg.showPopup({
-                        title: "Платеж не завершен",
-                        message: "Вы не завершили платеж. Попробуйте еще раз.",
-                        buttons: [{type: "ok"}]
-                    });
-                }
-            });
-        } else {
-            // Если платежи звездами недоступны, используем sendData
-            console.log("Stars payment not available, using sendData...");
-            
-            // Отправляем данные в бот
-            tg.sendData(JSON.stringify({
-                action: 'spin_roulette',
-                cost: STARS_COST
-            }));
-            
-            // Запускаем рулетку сразу после отправки данных
-            // Бот сам спишет звезды и отправит сообщение
+            isPaymentProcessing = false;
             startRoulette();
-        }
+        }, 1000);
     } catch (error) {
-        console.error("Error processing payment:", error);
+        console.error("Error during payment request:", error);
         
-        // Скрываем индикатор загрузки в случае ошибки
-        const loading = document.getElementById('loading');
+        // Скрываем индикатор загрузки
         if (loading) {
             loading.style.display = 'none';
         }
         
-        // Для тестирования в режиме отладки
-        if (DEBUG) {
-            console.log("DEBUG mode: Starting roulette despite error");
-            startRoulette();
-        } else {
-            // Показываем сообщение об ошибке
-            tg.showPopup({
-                title: 'Ошибка',
-                message: 'Произошла ошибка при обработке платежа. Попробуйте еще раз.',
-                buttons: [{ type: 'ok' }]
-            });
-        }
+        tg.showPopup({
+            title: "Ошибка",
+            message: "Не удалось отправить запрос на оплату. Попробуйте снова.",
+            buttons: [{ type: 'ok' }]
+        });
+        
+        isPaymentProcessing = false;
     }
 }
 
@@ -417,75 +479,162 @@ function checkUrlParams() {
     }
 }
 
-// Функция для отправки приза на сервер
-async function sendPrizeToServer(prize) {
-    try {
-        console.log("Sending prize to server:", prize);
-                
-        // Получаем объект Telegram WebApp
-        const tg = window.Telegram.WebApp;
-                
-        if (!tg) {
-            console.error("Telegram WebApp not available");
-            return;
-        }
-                
-        // Получаем ID пользователя
-        const userId = tg.initDataUnsafe?.user?.id;
-                
-        if (!userId) {
-            console.error("User ID not available");
-            return;
-        }
-                
-        // Получаем название приза
-        const prizeName = typeof prize === 'string' ? prize : prize.weapon_name;
-                
-        // Получаем стоимость подарка
-        const giftCost = getGiftCost(prizeName);
-                
-        // Показываем конфетти для выигрыша
-        showConfetti();
-                
-        // Показываем попап с выигрышем
-        showWinnerPopup(prize);
-                
-        // Отправляем данные в бот
-        console.log(`Sending prize data to server: ${prizeName}, cost: ${giftCost}`);
-                
-        // Отправляем данные через Telegram WebApp
-        tg.sendData(JSON.stringify({
-            action: 'prize_won',
-            prize_name: prizeName,
-            prize_cost: giftCost,
-            user_id: userId
-        }));
-                
-        console.log("Prize data sent to server");
-                
-        // Показываем уведомление о выигрыше
-        tg.showPopup({
-            title: 'Поздравляем!',
-            message: `Вы выиграли ${getGiftName(prizeName)}! Подарок будет отправлен вам в сообщении.`,
-            buttons: [{ type: 'ok' }]
-        });
-                
-        return true;
-    } catch (error) {
-        console.error("Error sending prize to server:", error);
-                
-        // Показываем сообщение об ошибке
-        if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.showPopup({
-                title: 'Ошибка',
-                message: 'Произошла ошибка при отправке приза. Пожалуйста, свяжитесь с администратором.',
-                buttons: [{ type: 'ok' }]
-            });
-        }
-                
-        return false;
+// Основная функция инициализации
+function main() {
+    console.log('Starting main initialization...');
+    // Always initialize user profile on page load
+    initUserProfile();
+    
+    // Проверяем наличие Telegram WebApp
+    if (!window.Telegram || !window.Telegram.WebApp) {
+        console.error('Telegram WebApp is not available');
+        alert('Ошибка: Telegram WebApp недоступен');
+        return;
     }
+    
+    const tg = window.Telegram.WebApp;
+    const spinButton = document.getElementById('spin-button');
+    const rouletteContainer = document.getElementById('roulette-container');
+    
+    if (!spinButton) {
+        console.error('Spin button not found');
+        return;
+    }
+    
+    if (!rouletteContainer) {
+        console.error('Roulette container not found');
+        return;
+    }
+    
+    // Используем глобальный режим отладки
+    console.log('Debug mode:', DEBUG ? 'enabled' : 'disabled');
+    
+    // Дебаг информация
+    console.log('Telegram WebApp initialized');
+    console.log('Version:', tg.version);
+    console.log('Platform:', tg.platform);
+    console.log('Theme:', tg.colorScheme);
+    console.log('Stars payment available:', tg.isStarsPaymentAvailable);
+    console.log('InitData available:', !!tg.initData);
+    console.log('InitDataUnsafe available:', !!tg.initDataUnsafe);
+    
+    // Настройка интерфейса
+    tg.expand();
+    tg.MainButton.hide();
+    
+    // Устанавливаем тему
+    document.documentElement.className = tg.colorScheme || 'light';
+    
+    // Инициализация статической рулетки
+    try {
+        initStaticRoulette();
+    } catch (e) {
+        console.error('Error initializing static roulette:', e);
+    }
+    
+    // Адаптация для мобильных устройств
+    try {
+        adjustForMobile();
+    } catch (e) {
+        console.error('Error adjusting for mobile:', e);
+    }
+    
+    // Добавляем обработчик для кнопки
+    console.log('Setting up spin button click handler');
+    
+    // Удаляем все существующие обработчики
+    spinButton.replaceWith(spinButton.cloneNode(true));
+    
+    // Получаем новую ссылку на кнопку после замены
+    const newSpinButton = document.getElementById('spin-button');
+    
+    // Добавляем новый обработчик
+    newSpinButton.addEventListener('click', function(event) {
+        console.log('Spin button clicked');
+        try {
+            processPayment();
+        } catch (e) {
+            console.error('Error processing payment:', e);
+            alert('Произошла ошибка при обработке платежа. Попробуйте еще раз.');
+        }
+    });
+    
+    console.log('Main initialization completed');
 }
+
+// Единственный слушатель загрузки DOM
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("DOM fully loaded");
+    
+    // Проверяем наличие кнопки и контейнера рулетки
+    const spinButton = document.getElementById('spin-button');
+    const rouletteContainer = document.getElementById('roulette-container');
+    
+    if (!spinButton) {
+        console.error("Spin button not found on page load!");
+    } else {
+        console.log("Spin button found on page load");
+    }
+    
+    if (!rouletteContainer) {
+        console.error("Roulette container not found on page load!");
+    } else {
+        console.log("Roulette container found on page load");
+    }
+    
+    // Проверяем наличие Telegram WebApp
+    if (window.Telegram && window.Telegram.WebApp) {
+        console.log("Telegram WebApp available:", window.Telegram.WebApp.version);
+        console.log("Stars payment available:", window.Telegram.WebApp.isStarsPaymentAvailable);
+    } else {
+        console.error("Telegram WebApp not available!");
+    }
+    
+    // Проверяем параметры URL для обработки возврата после платежа
+    checkUrlParams();
+    
+    // Запускаем основную функцию
+    main();
+    
+    // Создаем статичную рулетку без вращения
+    setTimeout(() => {
+        console.log("Initializing static roulette...");
+        initStaticRoulette();
+        // Вызываем функцию адаптации после создания рулетки
+        setTimeout(() => {
+            console.log("Adjusting for mobile...");
+            adjustForMobile();
+        }, 200);
+    }, 500);
+    
+    // Настраиваем обработчики Telegram WebApp
+    if (window.Telegram && window.Telegram.WebApp) {
+        const tg = window.Telegram.WebApp;
+        
+        // Устанавливаем обработчики событий
+        tg.onEvent('invoiceClosed', function(event) {
+            console.log('Invoice closed event:', event);
+            
+            const loading = document.getElementById('loading');
+            if (loading) {
+                loading.style.display = 'none';
+            }
+            
+            // Проверяем статус платежа
+            if (event.status === 'paid') {
+                console.log('Payment successful, starting roulette...');
+                startRoulette();
+            } else {
+                console.log('Payment failed or cancelled:', event.status);
+                tg.showPopup({
+                    title: 'Платеж не завершен',
+                    message: 'Вы не завершили платеж. Попробуйте еще раз.',
+                    buttons: [{ type: 'ok' }]
+                });
+            }
+        });
+    }
+});
 
 // Функция для инициализации профиля пользователя
 function initUserProfile() {
@@ -988,13 +1137,6 @@ function main() {
     // Устанавливаем тему
     document.documentElement.className = tg.colorScheme || 'light';
     
-    // Инициализация профиля пользователя
-    try {
-        initUserProfile();
-    } catch (e) {
-        console.error('Error initializing user profile:', e);
-    }
-    
     // Инициализация статической рулетки
     try {
         initStaticRoulette();
@@ -1032,7 +1174,10 @@ function main() {
     console.log('Main initialization completed');
 }
 
-// Инициализация при загрузке страницы
+// Добавляем обработчик изменения размера окна
+window.addEventListener('resize', adjustForMobile);
+
+// Единственный обработчик загрузки DOM
 document.addEventListener('DOMContentLoaded', function() {
     console.log("DOM fully loaded");
     
@@ -1055,43 +1200,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Проверяем наличие Telegram WebApp
     if (window.Telegram && window.Telegram.WebApp) {
         console.log("Telegram WebApp available:", window.Telegram.WebApp.version);
-        console.log("Stars payment available:", window.Telegram.WebApp.isStarsPaymentAvailable);
-    } else {
-        console.error("Telegram WebApp not available!");
-    }
-    
-    // Проверяем параметры URL для обработки возврата после платежа
-    checkUrlParams();
-    
-    // Запускаем основную функцию
-    main();
-    
-    // Создаем статичную рулетку без вращения
-    setTimeout(() => {
-        console.log("Initializing static roulette...");
-        initStaticRoulette();
-        // Вызываем функцию адаптации после создания рулетки
-        setTimeout(() => {
-            console.log("Adjusting for mobile...");
-            adjustForMobile();
-        }, 200);
-    }, 500);
-    
-    // Добавляем обработчик изменения размера окна
-    window.addEventListener('resize', adjustForMobile);
-});
-
-// Добавляем обработчик изменения размера окна
-window.addEventListener('resize', adjustForMobile);
-
-// Инициализация при загрузке страницы
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM fully loaded');
-    
-    // Проверяем доступность Telegram WebApp API
-    if (window.Telegram && window.Telegram.WebApp) {
+        
         const tg = window.Telegram.WebApp;
-        console.log('Telegram WebApp initialized, version:', tg.version);
         
         // Настраиваем основную кнопку
         tg.MainButton.setText('Крутить рулетку');
@@ -1100,13 +1210,7 @@ document.addEventListener('DOMContentLoaded', function() {
             processPayment();
         });
         
-        // Проверяем параметры URL при загрузке
-        checkUrlParams();
-        
-        // Показываем основную кнопку
-        tg.MainButton.show();
-        
-        // Устанавливаем обработчики событий
+        // Устанавливаем обработчик события invoiceClosed
         tg.onEvent('invoiceClosed', function(event) {
             console.log('Invoice closed event:', event);
             
@@ -1129,37 +1233,23 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     } else {
-        console.warn('Telegram WebApp is not available');
-        
-        // Добавляем кнопку для запуска рулетки, если Telegram WebApp недоступен
-        const spinButton = document.getElementById('spin-button');
-        if (spinButton) {
-            spinButton.style.display = 'block';
-            spinButton.addEventListener('click', function() {
-                processPayment();
-            });
-        }
+        console.error("Telegram WebApp not available!");
     }
     
-    // Инициализируем другие элементы интерфейса
-    initUI();
+    // Проверяем параметры URL для обработки возврата после платежа
+    checkUrlParams();
+    
+    // Запускаем основную функцию
+    main();
+    
+    // Создаем статичную рулетку без вращения
+    setTimeout(() => {
+        console.log("Initializing static roulette...");
+        initStaticRoulette();
+        // Вызываем функцию адаптации после создания рулетки
+        setTimeout(() => {
+            console.log("Adjusting for mobile...");
+            adjustForMobile();
+        }, 200);
+    }, 500);
 });
-
-// Функция для инициализации интерфейса
-function initUI() {
-    console.log('Initializing UI');
-    
-    // Инициализируем кнопку прокрутки рулетки
-    const spinButton = document.getElementById('spin-button');
-    if (spinButton) {
-        spinButton.addEventListener('click', function() {
-            processPayment();
-        });
-    }
-    
-    // Скрываем индикатор загрузки
-    const loading = document.getElementById('loading');
-    if (loading) {
-        loading.style.display = 'none';
-    }
-}
